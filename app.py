@@ -12,11 +12,18 @@ st.set_page_config(
     layout="wide",
 )
 
+MODELS_TO_TRY = ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
+
+
 # --- Helper Functions ---
 def get_city_coordinates(city_name: str):
     """Fetch latitude and longitude using Open-Meteo's free Geocoding API."""
     url = "https://geocoding-api.open-meteo.com/v1/search"
-    resp = requests.get(url, params={"name": city_name, "count": 1, "language": "en", "format": "json"}, timeout=10)
+    resp = requests.get(
+        url,
+        params={"name": city_name, "count": 1, "language": "en", "format": "json"},
+        timeout=10,
+    )
     resp.raise_for_status()
     data = resp.json()
     if not data.get("results"):
@@ -45,6 +52,8 @@ def get_air_quality(lat: float, lon: float):
 
 
 def get_aqi_badge(aqi: float):
+    if aqi is None:
+        return "⚪ Unknown", "Air quality index unavailable for this location."
     if aqi <= 50:
         return "🟢 Good", "Safe for all outdoor activities."
     elif aqi <= 100:
@@ -61,17 +70,17 @@ def get_aqi_badge(aqi: float):
 
 def generate_ai_plan(city: str, aq_data: dict, profile: str, commute: str, goal: str, api_key: str):
     """Use Google Gemini to generate a personalized low-emission & health protection plan."""
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key.strip())
     prompt = f"""
     You are VayuSense AI, an expert Urban Air Quality & Sustainability Assistant.
-    
+
     Location: {city}
     Real-Time Air Quality Metrics:
-    - US AQI: {aq_data.get('us_aqi')}
-    - PM2.5: {aq_data.get('pm2_5')} µg/m³
-    - PM10: {aq_data.get('pm10')} µg/m³
-    - NO2 (Traffic/Industrial gas): {aq_data.get('nitrogen_dioxide')} µg/m³
-    - Ozone (O3): {aq_data.get('ozone')} µg/m³
+    - US AQI: {aq_data.get('us_aqi', 'N/A')}
+    - PM2.5: {aq_data.get('pm2_5', 'N/A')} µg/m³
+    - PM10: {aq_data.get('pm10', 'N/A')} µg/m³
+    - NO2 (Traffic/Industrial gas): {aq_data.get('nitrogen_dioxide', 'N/A')} µg/m³
+    - Ozone (O3): {aq_data.get('ozone', 'N/A')} µg/m³
 
     User Context:
     - Health / Activity Profile: {profile}
@@ -84,11 +93,20 @@ def generate_ai_plan(city: str, aq_data: dict, profile: str, commute: str, goal:
     3. **Low-Emission Commute & Impact Action**: Specific commute alternatives for their mode of transport and how much personal exposure + urban CO2/NO2 it reduces.
     Keep it concise, empathetic, and actionable.
     """
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
-    )
-    return response.text
+
+    last_error = None
+    for model_name in MODELS_TO_TRY:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+            )
+            if response and response.text:
+                return response.text, model_name
+        except Exception as e:
+            last_error = e
+
+    raise RuntimeError(f"All configured Gemini models failed ({', '.join(MODELS_TO_TRY)}): {last_error}")
 
 
 # --- UI Layout ---
@@ -98,44 +116,70 @@ st.markdown("Real-time hyperlocal pollution tracking paired with **Gemini AI** p
 with st.sidebar:
     st.header("⚙️ Configuration")
     env_key = os.getenv("GEMINI_API_KEY", "")
-    api_key = st.text_input("Gemini API Key", value=env_key, type="password", help="Get a free key from Google AI Studio")
+    api_key = st.text_input(
+        "Gemini API Key",
+        value=env_key,
+        type="password",
+        help="Get a free key from Google AI Studio",
+    )
     st.divider()
     st.header("👤 Your Profile")
     city = st.text_input("City Name", value="New Delhi")
     profile = st.selectbox(
         "Health & Lifestyle Profile",
-        ["General Adult", "Asthma / Respiratory Sensitivity", "Outdoor Runner / Cyclist", "Parent with Young Children", "Elderly"],
+        [
+            "General Adult",
+            "Asthma / Respiratory Sensitivity",
+            "Outdoor Runner / Cyclist",
+            "Parent with Young Children",
+            "Elderly",
+        ],
     )
     commute = st.selectbox(
         "Primary Daily Commute",
-        ["Private Car / Cab", "Two-Wheeler / Bike", "Public Metro / Bus", "Walking / Cycling", "Work From Home"],
+        [
+            "Private Car / Cab",
+            "Two-Wheeler / Bike",
+            "Public Metro / Bus",
+            "Walking / Cycling",
+            "Work From Home",
+        ],
     )
     goal = st.selectbox(
         "Primary Goal",
-        ["Minimize Daily Pollution Exposure", "Reduce Personal Carbon & NO2 Footprint", "Safe Outdoor Workout Planning", "Improve Home Indoor Air Quality"],
+        [
+            "Minimize Daily Pollution Exposure",
+            "Reduce Personal Carbon & NO2 Footprint",
+            "Safe Outdoor Workout Planning",
+            "Improve Home Indoor Air Quality",
+        ],
     )
     analyze_btn = st.button("🔍 Analyze Air & Generate Plan", type="primary", use_container_width=True)
 
 if analyze_btn:
-    if not api_key:
+    if not api_key or not api_key.strip():
         st.error("Please enter your Gemini API Key in the sidebar (or configure `GEMINI_API_KEY` in app secrets).")
     elif not city.strip():
         st.warning("Please enter a valid city name.")
     else:
-        with st.spinner(f"Fetching live atmospheric data for {city}..."):
-            loc = get_city_coordinates(city.strip())
+        try:
+            with st.spinner(f"Fetching live atmospheric data for {city}..."):
+                loc = get_city_coordinates(city.strip())
+
             if not loc:
                 st.error(f"Could not find coordinates for '{city}'. Try another major city name.")
             else:
-                aq = get_air_quality(loc["lat"], loc["lon"])
-                aqi_val = aq.get("us_aqi", 0)
+                with st.spinner("Loading live air quality metrics..."):
+                    aq = get_air_quality(loc["lat"], loc["lon"])
+
+                aqi_val = aq.get("us_aqi")
                 badge, summary = get_aqi_badge(aqi_val)
 
                 st.subheader(f"📍 Live Air Quality: {loc['name']}, {loc['country']}")
                 st.info(f"**Status:** {badge} — {summary}")
 
                 col1, col2, col3, col4, col5 = st.columns(5)
-                col1.metric("US AQI", f"{aqi_val}")
+                col1.metric("US AQI", f"{aqi_val if aqi_val is not None else 'N/A'}")
                 col2.metric("PM2.5", f"{aq.get('pm2_5', 'N/A')} µg/m³")
                 col3.metric("PM10", f"{aq.get('pm10', 'N/A')} µg/m³")
                 col4.metric("NO₂", f"{aq.get('nitrogen_dioxide', 'N/A')} µg/m³")
@@ -143,13 +187,20 @@ if analyze_btn:
 
                 st.divider()
                 with st.spinner("Gemini AI is crafting your personalized routine & low-emission plan..."):
-                    try:
-                        ai_advice = generate_ai_plan(
-                            f"{loc['name']}, {loc['country']}", aq, profile, commute, goal, api_key
-                        )
-                        st.subheader("🤖 Your Personalized AI Action Plan")
-                        st.markdown(ai_advice)
-                    except Exception as e:
-                        st.error(f"Gemini API Error: {e}")
+                    ai_advice, used_model = generate_ai_plan(
+                        f"{loc['name']}, {loc['country']}",
+                        aq,
+                        profile,
+                        commute,
+                        goal,
+                        api_key,
+                    )
+                    st.subheader("🤖 Your Personalized AI Action Plan")
+                    st.caption(f"Generated using `{used_model}`")
+                    st.markdown(ai_advice)
+        except requests.RequestException as req_err:
+            st.error(f"Network / Air Quality API Error: {req_err}")
+        except Exception as e:
+            st.error(f"Gemini API Error: {e}")
 else:
     st.info("👈 Enter your **City** and **Gemini API Key** in the left sidebar, then click **Analyze Air & Generate Plan**.")
