@@ -1,13 +1,13 @@
 # 🌬️ VayuSense AI — Urban Air Quality Assistant
 
-An intelligent, real-time Urban Air Quality & Low-Emission Routine Assistant built with **Streamlit**, **Open-Meteo Air Quality API**, and **Google Gemini (`gemini-2.5-flash`)**.
+An urban air quality monitoring and personalized low-emission routine assistant built with **Streamlit**, **Open-Meteo Air Quality API**, and **Google Gemini**.
 
 ## Features
-- **Live Hyperlocal AQI & Pollutants:** Fetches real-time US AQI, PM2.5, PM10, NO₂, and O₃ levels for any city worldwide.
-- **Personalized Health Guidance:** Tailors outdoor schedules, mask recommendations, and indoor ventilation advice to individual health sensitivities.
-- **Low-Emission Commute Advisor:** Suggests practical commute shifts to reduce personal pollutant exposure and urban emissions.
+- **Live Hyperlocal Air Quality:** Fetches real-time US AQI, PM2.5, PM10, NO₂, and O₃ readings by city.
+- **Personalized Health & Commute Guidance:** Tailors outdoor schedules, indoor air care, and low-emission commute choices to your profile and goal.
+- **Accessible & Cached Interface:** Uses cached API clients/responses and accessible status feedback.
 
-## Local Setup
+## Local Setup & Testing
 1. Install dependencies:
    ```bash
    pip install -r requirements.txt
